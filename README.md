@@ -1,5 +1,5 @@
 # DeepViscosity
-DeepViscosity is a deep learning ANN model developed to predict high concentrated monoclonal antibody viscosity classes (Low - <= 20cps, High > 20cps). The model utilized 30 spatial properties (descriptors) obtained from DeepSP surrogate model as features for training.
+DeepViscosity is an ensemble deep learning ANN model developed to predict high-concentration monoclonal antibody viscosity classes (Low <= 20 cP, High > 20 cP). The model utilized 30 spatial properties (descriptors) obtained from DeepSP surrogate model as features for training. It was trained based on 229 mAbs.
 
 # How to use DeepViscosity to Predict Low or High Class Viscosity
 - Prepare your input file according to the format DeepViscosity_input.csv
