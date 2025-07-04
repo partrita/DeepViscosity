@@ -24,7 +24,7 @@ from Bio.SeqRecord import SeqRecord
 
 
 # Import dataset
-dataset = pd.read_csv('DeepViscosity_input.csv') # replace with your csv file, see format in DeepViscosity_input.csv file
+dataset = pd.read_csv('../data/input/DeepViscosity_input.csv') # replace with your csv file, see format in DeepViscosity_input.csv file
 
 name = dataset['Name'].to_list()
 Heavy_seq = dataset['Heavy_Chain'].to_list()
@@ -64,14 +64,14 @@ with open(file_out, "w") as output_handle:
 os.system('ANARCI -i seq_H.fasta -o seq_aligned -s imgt -r heavy --csv')
 os.system('ANARCI -i seq_L.fasta -o seq_aligned -s imgt -r light --csv')
 
-H_aligned = pd.read_csv('seq_aligned_H.csv')
-L_aligned = pd.read_csv('seq_aligned_KL.csv')
+H_aligned = pd.read_csv('../data/input/seq_aligned_H.csv')
+L_aligned = pd.read_csv('../data/input/seq_aligned_KL.csv')
 
 # sequence alignment - source: # https://github.com/Lailabcode/DeepSCM/blob/main/deepscm-master/seq_preprocessing.py
 def seq_preprocessing():
-  infile_H = pd.read_csv('seq_aligned_H.csv')
-  infile_L = pd.read_csv('seq_aligned_KL.csv')
-  outfile = open('seq_aligned_HL.txt', "w")
+  infile_H = pd.read_csv('../data/input/seq_aligned_H.csv')
+  infile_L = pd.read_csv('../data/input/seq_aligned_KL.csv')
+  outfile = open('../data/input/seq_aligned_HL.txt', "w")
 
   H_inclusion_list = ['1','2','3','4','5','6','7','8','9','10',                     '11','12','13','14','15','16','17','18','19','20',                     '21','22','23','24','25','26','27','28','29','30',                     '31','32','33','34','35','36','37','38','39','40',                     '41','42','43','44','45','46','47','48','49','50',                     '51','52','53','54','55','56','57','58','59','60',                     '61','62','63','64','65','66','67','68','69','70',                     '71','72','73','74','75','76','77','78','79','80',                     '81','82','83','84','85','86','87','88','89','90',                     '91','92','93','94','95','96','97','98','99','100',                     '101','102','103','104','105','106','107','108','109','110',                     '111','111A','111B','111C','111D','111E','111F','111G','111H',                     '112I','112H','112G','112F','112E','112D','112C','112B','112A','112',                    '113','114','115','116','117','118','119','120',                     '121','122','123','124','125','126','127','128']
 
@@ -116,7 +116,7 @@ def load_input_data(filename):
             seq_list.append(line[1])
     return name_list, seq_list
 
-name_list, seq_list = load_input_data('seq_aligned_HL.txt')
+name_list, seq_list = load_input_data('../data/seq_aligned_HL.txt')
 X = seq_list
 
 # One hot encoding of aligned sequences
@@ -135,32 +135,32 @@ X = np.asarray(X)
 # DeepSP Predictions: source - https://github.com/Lailabcode/DeepSP
 
 # sappos
-json_file = open('DeepSP_CNN_model/Conv1D_regressionSAPpos.json', 'r')
+json_file = open('../data/DeepSP_CNN_model/Conv1D_regressionSAPpos.json', 'r')
 loaded_model_json = json_file.read()
 json_file.close()
 loaded_model = model_from_json(loaded_model_json)
 # load weights into model
-loaded_model.load_weights("DeepSP_CNN_model/Conv1D_regression_SAPpos.h5")
+loaded_model.load_weights("../data/DeepSP_CNN_model/Conv1D_regression_SAPpos.h5")
 loaded_model.compile(optimizer='adam', loss='mae', metrics=['mae'])
 sap_pos = loaded_model.predict(X)
 
 # scmpos
-json_file = open('DeepSP_CNN_model/Conv1D_regressionSCMpos.json', 'r')
+json_file = open('../data/DeepSP_CNN_model/Conv1D_regressionSCMpos.json', 'r')
 loaded_model_json = json_file.read()
 json_file.close()
 loaded_model = model_from_json(loaded_model_json)
 # load weights into model
-loaded_model.load_weights("DeepSP_CNN_model/Conv1D_regression_SCMpos.h5")
+loaded_model.load_weights("../data/DeepSP_CNN_model/Conv1D_regression_SCMpos.h5")
 loaded_model.compile(optimizer='adam', loss='mae', metrics=['mae'])
 scm_pos = loaded_model.predict(X)
 
 # scmneg
-json_file = open('DeepSP_CNN_model/Conv1D_regressionSCMneg.json', 'r')
+json_file = open('../data/DeepSP_CNN_model/Conv1D_regressionSCMneg.json', 'r')
 loaded_model_json = json_file.read()
 json_file.close()
 loaded_model = model_from_json(loaded_model_json)
 # load weights into model
-loaded_model.load_weights("DeepSP_CNN_model/Conv1D_regression_SCMneg.h5")
+loaded_model.load_weights("../data/DeepSP_CNN_model/Conv1D_regression_SCMneg.h5")
 loaded_model.compile(optimizer='adam', loss='mae', metrics=['mae'])
 scm_neg = loaded_model.predict(X)
 
@@ -169,23 +169,23 @@ features = ['Name', 'SAP_pos_CDRH1','SAP_pos_CDRH2','SAP_pos_CDRH3','SAP_pos_CDR
           'SCM_neg_CDRH1','SCM_neg_CDRH2','SCM_neg_CDRH3','SCM_neg_CDRL1','SCM_neg_CDRL2','SCM_neg_CDRL3','SCM_neg_CDR','SCM_neg_Hv','SCM_neg_Lv','SCM_neg_Fv',
           'SCM_pos_CDRH1','SCM_pos_CDRH2','SCM_pos_CDRH3','SCM_pos_CDRL1','SCM_pos_CDRL2','SCM_pos_CDRL3','SCM_pos_CDR','SCM_pos_Hv','SCM_pos_Lv','SCM_pos_Fv']
 df_deepsp = pd.concat([pd.DataFrame(name_list), pd.DataFrame(sap_pos), pd.DataFrame(scm_neg), pd.DataFrame(scm_pos)], ignore_index=True, axis=1,); df_deepsp.columns = features
-df_deepsp.to_csv('DeepSP_descriptors.csv', index=False)
+df_deepsp.to_csv('../data/DeepSP_descriptors.csv', index=False)
 
 
 # DeepViscosity Predictions [ Low viscoity(<=20cps) : 0, High viscosity(>20cps) : 1 ]
 X = df_deepsp.iloc[:, 1:]
 
-scaler = joblib.load("DeepViscosity_scaler/DeepViscosity_scaler.save")
+scaler = joblib.load("../data/DeepViscosity_scaler/DeepViscosity_scaler.save")
 X_scaled = scaler.transform(X.values)
 
 model_preds = []
 for i in range(102):
     file = 'ANN_logo_' + str(i)
-    with open('DeepViscosity_ANN_ensemble_models/'+file+'.json', 'r') as json_file:
+    with open('../data/DeepViscosity_ANN_ensemble_models/'+file+'.json', 'r') as json_file:
         loaded_model_json = json_file.read()
 
     model = model_from_json(loaded_model_json)
-    model.load_weights('DeepViscosity_ANN_ensemble_models/'+file+'.h5')
+    model.load_weights('../data/DeepViscosity_ANN_ensemble_models/'+file+'.h5')
     model.compile(optimizer=Adam(0.0001), metrics=['accuracy'])
 
     pred = model.predict(X_scaled, verbose=0)
@@ -196,4 +196,4 @@ for i in range(102):
 
 
 df_deepvis = pd.concat([pd.DataFrame(name_list), pd.DataFrame(final_pred)], ignore_index=True, axis=1,); df_deepvis.columns = ['Name', 'DeepViscosity_classes']
-df_deepvis.to_csv('DeepViscosity_classes.csv', index=False)
+df_deepvis.to_csv('../data/DeepViscosity_classes.csv', index=False)
