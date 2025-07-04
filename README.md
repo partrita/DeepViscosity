@@ -16,8 +16,14 @@ DeepViscosity is an ensemble deep learning ANN model developed to predict high-c
 	- pip install keras==2.11.0 tensorflow-cpu==2.11.0 scikit-learn==1.0.2 pandas numpy==1.26.4 joblib dill
 
 - Prepare your input file according to the format DeepViscosity_input.csv
-- Run the python file deepviscosity_predictor.py
+- Run the python file `deepviscosity_predictor.py` using the following command:
+  ```bash
+  python deepviscosity_predictor.py your_input_file.csv
+  ```
+  Replace `your_input_file.csv` with the actual name of your input file.
 - DeepViscosity Classes (as well as the DeepSP spatial properties) for sequences inputed, will be obtained and saved to a csv file - DeepViscosity_classes.csv.
+
+**Note:** Ensure that you have activated the `deepViscosity` conda environment before running the script. If you haven't created the environment and installed the dependencies, please refer to the installation instructions above.
 
 # Citation
 Lateefat A. Kalejaye, Jia-Min Chu, I-En Wu, Bismark Amofah, Amber Lee, Mark Hutchinson, Chacko Chakiath, Andrew Dippel, Gilad Kaplan, Melissa Damschroder, Valentin Stanev, Maryam Pouryahya, Mehdi Boroumand, Jenna Caldwell, Alison Hinton, Madison Kreitz, Mitali Shah, Austin Gallegos, Neil Mody and Pin-Kuang Lai (2025). Accelerating high-concentration monoclonal antibody development with large-scale viscosity data and ensemble deep learning. mAbs, 17(1). [https://doi.org/10.1080/19420862.2025.2483944](https://www.tandfonline.com/doi/full/10.1080/19420862.2025.2483944)
