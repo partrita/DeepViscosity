@@ -12,15 +12,30 @@ DeepViscosity는 고농도 단일클론항체 점도 등급(낮음 <= 20 cP, 높
 
 ## 옵션 2 - Linux 환경
 
-- 환경을 만들고 필요한 패키지를 설치합니다.
-	- conda create -n deepViscosity python=3.9.13
-	- source activate deepViscosity
-	- conda install -c bioconda anarci
-	- pip install keras==2.11.0 tensorflow-cpu==2.11.0 scikit-learn==1.0.2 pandas numpy==1.26.4 joblib dill
 
-- DeepViscosity_input.csv 형식에 따라 입력 파일을 준비합니다.
-- 파이썬 파일 deepviscosity_predictor.py를 실행합니다.
-- 입력된 시퀀스에 대한 DeepViscosity 등급(및 DeepSP 공간 속성)이 확보되어 csv 파일(DeepViscosity_classes.csv)에 저장됩니다.
+### 의존성 설치
+
+`pixi`를 사용합니다.
+
+```bash
+gh repo clone partrita/DeepViscosity
+cd DeepViscosity
+pixi install
+```
+
+### 분석할 서열 준비
+
+`data\input\DeepViscosity_input.csv` 형식에 따라 입력 파일을 준비합니다.
+
+
+### 코드 실행
+
+```bash
+pixi run deepviscosity --input_csv data/input/DeepViscosity_input.csv --output_csv data/output/
+ 
+```
+
+서열에 DeepViscosity 등급(및 DeepSP 공간 속성)이 확보되어 csv 파일(DeepViscosity_classes.csv)에 저장됩니다.
 
 # 인용
 
