@@ -33,20 +33,12 @@ except AttributeError:
 
 
 # Function to preprocess sequences (source: https://github.com/Lailabcode/DeepSCM/blob/main/deepscm-master/seq_preprocessing.py)
-def seq_preprocessing(infile_H_path, infile_L_path, outfile_path):
+def seq_preprocessing(infile_H_path, infile_L_path, outfile_path, chunk_size=50000):
     """
     Preprocesses aligned heavy and light chain sequences into a combined format.
-
-    Args:
-        infile_H_path (str): Path to the aligned heavy chain CSV file.
-        infile_L_path (str): Path to the aligned light chain CSV file.
-        outfile_path (str): Path for the output combined sequence text file.
+    Optimized version using chunked processing for large files.
     """
-    infile_H = pd.read_csv(infile_H_path)
-    infile_L = pd.read_csv(infile_L_path)
-
-    # Define inclusion lists for heavy and light chain positions
-    # These lists define the order and specific positions to extract
+    # Define inclusion lists (keep existing lists)
     H_inclusion_list = ['1','2','3','4','5','6','7','8','9','10',
                         '11','12','13','14','15','16','17','18','19','20',
                         '21','22','23','24','25','26','27','28','29','30',
@@ -78,37 +70,67 @@ def seq_preprocessing(infile_H_path, infile_L_path, outfile_path):
                         '121','122','123','124','125','126','127']
 
     # Programmatically generate dictionaries for mapping positions to array indices
-    # This ensures consistency between the inclusion lists and the dictionaries
     H_dict = {pos: idx for idx, pos in enumerate(H_inclusion_list)}
     L_dict = {pos: idx for idx, pos in enumerate(L_inclusion_list)}
-
-    N_mAbs = len(infile_H["Id"])
-
+    
+    # Get total number of rows for progress tracking
+    print("Counting total sequences...")
+    with open(infile_H_path, 'r') as f:
+        total_rows = sum(1 for line in f) - 1  # Subtract header
+    
+    print(f"Processing {total_rows} sequences in chunks of {chunk_size}...")
+    
+    # Process files in chunks to reduce memory usage
+    processed_rows = 0
+    
     with open(outfile_path, "w") as outfile:
-        for i in range(N_mAbs):
-            # Initialize temporary sequence arrays with gaps based on expected lengths
-            H_tmp = ['-'] * len(H_inclusion_list)
-            L_tmp = ['-'] * len(L_inclusion_list)
+        # Read heavy chain file in chunks
+        H_reader = pd.read_csv(infile_H_path, chunksize=chunk_size)
+        L_reader = pd.read_csv(infile_L_path, chunksize=chunk_size)
+        
+        for chunk_idx, (H_chunk, L_chunk) in enumerate(zip(H_reader, L_reader)):
+            print(f"Processing chunk {chunk_idx + 1} ({processed_rows + 1}-{processed_rows + len(H_chunk)} sequences)")
+            
+            # Get relevant columns only to speed up processing
+            H_relevant_cols = [col for col in H_chunk.columns if col in H_dict or col == 'Id']
+            L_relevant_cols = [col for col in L_chunk.columns if col in L_dict or col == 'Id']
+            
+            H_chunk_filtered = H_chunk[H_relevant_cols]
+            L_chunk_filtered = L_chunk[L_relevant_cols]
+            
+            # Process each sequence in the chunk
+            for i in range(len(H_chunk_filtered)):
+                # Initialize temporary sequence arrays with gaps
+                H_tmp = ['-'] * len(H_inclusion_list)
+                L_tmp = ['-'] * len(L_inclusion_list)
 
-            # Populate heavy chain sequence based on inclusion list and available columns
-            for col in infile_H.columns:
-                if col in H_dict: # Check if column is in our mapping dictionary
-                    H_tmp[H_dict[col]] = infile_H.iloc[i][col]
-            # Populate light chain sequence based on inclusion list and available columns
-            for col in infile_L.columns:
-                if col in L_dict: # Check if column is in our mapping dictionary
-                    L_tmp[L_dict[col]] = infile_L.iloc[i][col]
+                # Populate heavy chain sequence
+                for col in H_chunk_filtered.columns:
+                    if col in H_dict:
+                        H_tmp[H_dict[col]] = H_chunk_filtered.iloc[i][col]
+                
+                # Populate light chain sequence
+                for col in L_chunk_filtered.columns:
+                    if col in L_dict:
+                        L_tmp[L_dict[col]] = L_chunk_filtered.iloc[i][col]
 
-            aa_string = ''
-            for aa in H_tmp + L_tmp:
-                aa_string += aa
-            outfile.write(infile_H.iloc[i, 0] + " " + aa_string)
-            outfile.write("\n")
+                # Combine sequences
+                aa_string = ''.join(H_tmp + L_tmp)
+                outfile.write(f"{H_chunk_filtered.iloc[i, 0]} {aa_string}\n")
+            
+            processed_rows += len(H_chunk)
+            
+            # Progress update
+            if chunk_idx % 5 == 0:
+                print(f"Progress: {processed_rows}/{total_rows} sequences ({100*processed_rows/total_rows:.1f}%)")
+
+    print("Sequence preprocessing completed.")
 
 # Function to load input data from the preprocessed sequence file
 def load_input_data(filename):
     """
     Loads antibody names and sequences from a preprocessed text file.
+    Optimized for large files.
 
     Args:
         filename (str): Path to the preprocessed sequence text file.
@@ -116,13 +138,26 @@ def load_input_data(filename):
     Returns:
         tuple: A tuple containing two lists: names and sequences.
     """
+    print("Loading preprocessed sequences...")
     name_list = []
     seq_list = []
+    
+    # Count total lines for progress tracking
+    with open(filename, 'r') as f:
+        total_lines = sum(1 for _ in f)
+    
+    print(f"Loading {total_lines} sequences...")
+    
     with open(filename) as datafile:
-        for line in datafile:
-            line = line.strip().split()
+        for i, line in enumerate(datafile):
+            line = line.strip().split(maxsplit=1)  # Split only on first space
             name_list.append(line[0])
             seq_list.append(line[1])
+            
+            # Progress update
+            if (i + 1) % 100000 == 0:
+                print(f"Loaded {i + 1}/{total_lines} sequences ({100*(i+1)/total_lines:.1f}%)")
+    
     return name_list, seq_list
 
 # Function for one-hot encoding of amino acid sequences
@@ -145,109 +180,234 @@ def one_hot_encoder(s):
     x[[d[c] for c in s], range(len(s))] = 1
     return x
 
+def batch_one_hot_encode(seq_list, batch_size=10000):
+    """
+    Performs one-hot encoding for multiple sequences in batches.
+    
+    Args:
+        seq_list (list): List of amino acid sequences.
+        batch_size (int): Number of sequences to process at once.
+    
+    Returns:
+        numpy.ndarray: The one-hot encoded representation of all sequences.
+    """
+    print(f"Performing one-hot encoding for {len(seq_list)} sequences in batches of {batch_size}...")
+    
+    n_sequences = len(seq_list)
+    n_batches = (n_sequences + batch_size - 1) // batch_size
+    
+    encoded_batches = []
+    
+    for batch_idx in range(n_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min((batch_idx + 1) * batch_size, n_sequences)
+        
+        print(f"Encoding batch {batch_idx + 1}/{n_batches} (sequences {start_idx + 1}-{end_idx})")
+        
+        # Process batch
+        batch_sequences = seq_list[start_idx:end_idx]
+        batch_encoded = [one_hot_encoder(s) for s in batch_sequences]
+        
+        # Convert to numpy array and transpose
+        batch_array = np.transpose(np.asarray(batch_encoded), (0, 2, 1))
+        encoded_batches.append(batch_array)
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+    
+    # Combine all batches
+    print("Combining encoded batches...")
+    X = np.vstack(encoded_batches) if len(encoded_batches) > 1 else encoded_batches[0]
+    
+    return X
+
+# CSV 파일 처리를 위해 chunk 처리 방식 도입
+def process_sequences_in_chunks(input_csv, chunk_size=1000):
+    """
+    Process large CSV files in chunks to reduce memory usage
+    """
+    chunks = []
+    for chunk in pd.read_csv(input_csv, chunksize=chunk_size):
+        chunks.append({
+            'name': chunk['Name'].tolist(),
+            'heavy': chunk['Heavy_Chain'].tolist(),
+            'light': chunk['Light_Chain'].tolist()
+        })
+    return chunks
+
+def process_predictions_in_batches(X, model_dir, batch_size=5000):
+    """
+    Process predictions in batches to handle large datasets
+    """
+    n_samples = X.shape[0]
+    n_batches = (n_samples + batch_size - 1) // batch_size
+    
+    print(f"Processing {n_samples} samples in {n_batches} batches of size {batch_size}")
+    
+    all_predictions = []
+    
+    for batch_idx in range(n_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min((batch_idx + 1) * batch_size, n_samples)
+        X_batch = X[start_idx:end_idx]
+        
+        print(f"Processing batch {batch_idx + 1}/{n_batches} (samples {start_idx}-{end_idx-1})")
+        
+        # SAPpos prediction
+        try:
+            with open(os.path.join(model_dir, 'Conv1D_regression_SAPpos.json'), 'r') as json_file:
+                loaded_model_json = json_file.read()
+            model = model_from_json(loaded_model_json)
+            model.load_weights(os.path.join(model_dir, 'Conv1D_regression_SAPpos.h5'))
+            model.compile(optimizer='adam', loss='mae', metrics=['mae'])
+            sap_pos_batch = model.predict(X_batch, verbose=0)
+            del model  # Free memory
+        except Exception as e:
+            print(f"Error with SAPpos model in batch {batch_idx + 1}: {e}")
+            return None, None, None
+        
+        # SCMpos prediction
+        try:
+            with open(os.path.join(model_dir, 'Conv1D_regression_SCMpos.json'), 'r') as json_file:
+                loaded_model_json = json_file.read()
+            model = model_from_json(loaded_model_json)
+            model.load_weights(os.path.join(model_dir, 'Conv1D_regression_SCMpos.h5'))
+            model.compile(optimizer='adam', loss='mae', metrics=['mae'])
+            scm_pos_batch = model.predict(X_batch, verbose=0)
+            del model  # Free memory
+        except Exception as e:
+            print(f"Error with SCMpos model in batch {batch_idx + 1}: {e}")
+            return None, None, None
+        
+        # SCMneg prediction
+        try:
+            with open(os.path.join(model_dir, 'Conv1D_regression_SCMneg.json'), 'r') as json_file:
+                loaded_model_json = json_file.read()
+            model = model_from_json(loaded_model_json)
+            model.load_weights(os.path.join(model_dir, 'Conv1D_regression_SCMneg.h5'))
+            model.compile(optimizer='adam', loss='mae', metrics=['mae'])
+            scm_neg_batch = model.predict(X_batch, verbose=0)
+            del model  # Free memory
+        except Exception as e:
+            print(f"Error with SCMneg model in batch {batch_idx + 1}: {e}")
+            return None, None, None
+        
+        # Store batch results
+        if batch_idx == 0:
+            sap_pos_all = sap_pos_batch
+            scm_pos_all = scm_pos_batch
+            scm_neg_all = scm_neg_batch
+        else:
+            sap_pos_all = np.vstack([sap_pos_all, sap_pos_batch])
+            scm_pos_all = np.vstack([scm_pos_all, scm_pos_batch])
+            scm_neg_all = np.vstack([scm_neg_all, scm_neg_batch])
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+    
+    return sap_pos_all, scm_pos_all, scm_neg_all
+
+# FASTA 파일 생성 함수 최적화
+def write_fasta_chunks(sequences, output_path, seq_type='heavy'):
+    """
+    Write sequences to FASTA file efficiently
+    """
+    with open(output_path, 'w') as f:
+        for seq_dict in sequences:
+            for i, name in enumerate(seq_dict['name']):
+                seq = seq_dict['heavy'][i] if seq_type == 'heavy' else seq_dict['light'][i]
+                f.write(f">{name}\n{seq}\n")
+
 # Main command-line interface function using click
 @click.command()
-@click.option('--input_csv', required=True, help='Path to the input CSV file (e.g., DeepViscosity_input.csv).')
-@click.option('--output_csv', required=True, help='Path to the output CSV file or directory where predictions will be saved.')
-def main(input_csv, output_csv):
+@click.option('--input_csv', required=True, help='Path to the input CSV file.')
+@click.option('--output_csv', required=True, help='Path to the output CSV file or directory.')
+@click.option('--chunk_size', default=1000, help='Number of sequences to process at once for FASTA generation.')
+@click.option('--batch_size', default=5000, help='Batch size for model predictions.')
+@click.option('--preprocessing_chunk_size', default=50000, help='Chunk size for reading alignment files.')
+def main(input_csv, output_csv, chunk_size, batch_size, preprocessing_chunk_size):
     """
     Predicts DeepViscosity classes for antibody sequences from an input CSV file.
-    Intermediate files are stored in the same directory as the output CSV.
     """
-    # Determine the actual output file path
+    # 입력 파일명에서 기본 파일명 추출
+    input_basename = os.path.splitext(os.path.basename(input_csv))[0]
+    
+    # 출력 경로 처리 개선
     if os.path.isdir(output_csv):
-        # If output_csv is a directory, append a default filename
-        output_filename = "DeepViscosity_predictions.csv"
+        # 출력이 디렉토리인 경우, 입력 파일명을 기반으로 출력 파일명 생성
+        output_filename = f"{input_basename}_DeepViscosity_predictions.csv"
         output_csv_filepath = os.path.join(output_csv, output_filename)
-        output_dir = output_csv # The user provided a directory, so use it as the output_dir
-        print(f"Output path provided is a directory. Saving results to: {output_csv_filepath}")
+        output_dir = output_csv
     else:
-        # If output_csv is a file path, extract the directory
+        # 출력이 파일 경로인 경우
         output_csv_filepath = output_csv
         output_dir = os.path.dirname(output_csv_filepath)
-        if not output_dir: # Handle cases where only a filename is given (e.g., "output.csv")
-            output_dir = "." # Use current directory if no directory is specified
+        if not output_dir:
+            output_dir = "."
 
-    # Create the output directory if it doesn't exist
+    # 출력 디렉토리 생성
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         print(f"Created output directory: {output_dir}")
+
+    print(f"Output will be saved to: {output_csv_filepath}")
 
     # 현재 스크립트의 절대 경로를 얻고, 프로젝트의 루트 디렉토리를 계산합니다.
     # predict.py는 src/deepviscosity/ 안에 있으므로, 두 레벨 위가 루트입니다.
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
 
-    print(f"Loading dataset from: {input_csv}")
-    try:
-        dataset = pd.read_csv(input_csv)
-    except FileNotFoundError:
-        print(f"Error: Input CSV file not found at {input_csv}")
-        return
-    except Exception as e:
-        print(f"Error loading input CSV: {e}")
-        return
-
-    name = dataset['Name'].to_list()
-    Heavy_seq = dataset['Heavy_Chain'].to_list()
-    Light_seq = dataset['Light_Chain'].to_list()
-
-    # Convert to fasta files for ANARCI
-    print("Converting sequences to FASTA format...")
+    print(f"Processing dataset from: {input_csv}")
+    
+    # Check if FASTA files already exist
     fasta_H_path = os.path.join(output_dir, 'seq_H.fasta')
     fasta_L_path = os.path.join(output_dir, 'seq_L.fasta')
-
-    with open(fasta_H_path, "w") as output_handle:
-        for i in range(len(name)):
-            record = SeqRecord(
-                Seq(Heavy_seq[i]),
-                id=name[i],
-                name="",
-                description="",
-            )
-            SeqIO.write(record, output_handle, "fasta")
-
-    with open(fasta_L_path, "w") as output_handle:
-        for i in range(len(name)):
-            record = SeqRecord(
-                Seq(Light_seq[i]),
-                id=name[i],
-                name="",
-                description="",
-            )
-            SeqIO.write(record, output_handle, "fasta")
-
-    # Sequence alignment with ANARCI
-    print("Performing sequence alignment with ANARCI...")
-    # ANARCI automatically appends _H.csv and _KL.csv to the output base name
     anarci_output_base = os.path.join(output_dir, 'seq_aligned')
     aligned_csv_H_path = anarci_output_base + '_H.csv'
-    aligned_csv_KL_path = anarci_output_base + '_KL.csv' # ANARCI outputs KL for light chain
+    aligned_csv_KL_path = anarci_output_base + '_KL.csv'
 
-    # Construct ANARCI commands with full paths
-    anarci_cmd_H = f'ANARCI -i {fasta_H_path} -o {anarci_output_base} -s imgt -r heavy --csv'
-    anarci_cmd_L = f'ANARCI -i {fasta_L_path} -o {anarci_output_base} -s imgt -r light --csv'
+    if os.path.exists(fasta_H_path) and os.path.exists(fasta_L_path):
+        print("Found existing FASTA files. Skipping FASTA generation...")
+    else:
+        try:
+            # 청크 단위로 데이터 처리
+            sequence_chunks = process_sequences_in_chunks(input_csv, chunk_size)
+            
+            # FASTA 파일 생성
+            print("Converting sequences to FASTA format...")
+            write_fasta_chunks(sequence_chunks, fasta_H_path, 'heavy')
+            write_fasta_chunks(sequence_chunks, fasta_L_path, 'light')
+        except Exception as e:
+            print(f"Error processing input CSV: {e}")
+            return
 
-    print(f"Executing: {anarci_cmd_H}")
-    os.system(anarci_cmd_H)
-    print(f"Executing: {anarci_cmd_L}")
-    os.system(anarci_cmd_L)
+    if os.path.exists(aligned_csv_H_path) and os.path.exists(aligned_csv_KL_path):
+        print("Found existing aligned sequence files. Skipping ANARCI alignment...")
+    else:
+        # Sequence alignment with ANARCI
+        print("Performing sequence alignment with ANARCI...")
+        
+        # Construct ANARCI commands with full paths
+        anarci_cmd_H = f'ANARCI -i {fasta_H_path} -o {anarci_output_base} -s imgt -r heavy --csv'
+        anarci_cmd_L = f'ANARCI -i {fasta_L_path} -o {anarci_output_base} -s imgt -r light --csv'
+
+        print(f"Executing: {anarci_cmd_H}")
+        os.system(anarci_cmd_H)
+        print(f"Executing: {anarci_cmd_L}")
+        os.system(anarci_cmd_L)
 
     # Preprocess aligned sequences
     print("Preprocessing aligned sequences...")
     combined_seq_txt_path = os.path.join(output_dir, 'seq_aligned_HL.txt')
-    seq_preprocessing(aligned_csv_H_path, aligned_csv_KL_path, combined_seq_txt_path)
+    seq_preprocessing(aligned_csv_H_path, aligned_csv_KL_path, combined_seq_txt_path, chunk_size=preprocessing_chunk_size)
 
     # Load preprocessed sequences
-    print("Loading preprocessed sequences for one-hot encoding...")
     name_list, seq_list = load_input_data(combined_seq_txt_path)
-    X = seq_list
 
-    # One hot encoding of aligned sequences
-    print("Performing one-hot encoding...")
-    X = [one_hot_encoder(s=x) for x in X]
-    X = np.transpose(np.asarray(X), (0, 2, 1))
-    X = np.asarray(X)
+    # One hot encoding of aligned sequences using batch processing
+    X = batch_one_hot_encode(seq_list, batch_size=10000)
 
     # DeepSP Predictions (models assumed to be in fixed relative paths)
     print("Making DeepSP predictions...")
@@ -255,43 +415,11 @@ def main(input_csv, output_csv):
     deepsp_model_dir = os.path.join(project_root, 'data', 'DeepSP_CNN_model')
     deepsp_descriptors_path = os.path.join(output_dir, 'DeepSP_descriptors.csv') # Path for DeepSP output
 
-    # SAPpos prediction
-    try:
-        # 파일명에 '_regression_'이 포함된 버전을 사용하도록 수정
-        with open(os.path.join(deepsp_model_dir, 'Conv1D_regression_SAPpos.json'), 'r') as json_file:
-            loaded_model_json = json_file.read()
-        loaded_model = model_from_json(loaded_model_json)
-        loaded_model.load_weights(os.path.join(deepsp_model_dir, 'Conv1D_regression_SAPpos.h5'))
-        loaded_model.compile(optimizer='adam', loss='mae', metrics=['mae'])
-        sap_pos = loaded_model.predict(X)
-    except Exception as e:
-        print(f"Error loading or predicting with SAPpos model: {e}")
-        return
-
-    # SCMpos prediction
-    try:
-        # 파일명에 '_regression_'이 포함된 버전을 사용하도록 수정
-        with open(os.path.join(deepsp_model_dir, 'Conv1D_regression_SCMpos.json'), 'r') as json_file:
-            loaded_model_json = json_file.read()
-        loaded_model = model_from_json(loaded_model_json)
-        loaded_model.load_weights(os.path.join(deepsp_model_dir, 'Conv1D_regression_SCMpos.h5'))
-        loaded_model.compile(optimizer='adam', loss='mae', metrics=['mae'])
-        scm_pos = loaded_model.predict(X)
-    except Exception as e:
-        print(f"Error loading or predicting with SCMpos model: {e}")
-        return
-
-    # SCMneg prediction
-    try:
-        # 파일명에 '_regression_'이 포함된 버전을 사용하도록 수정
-        with open(os.path.join(deepsp_model_dir, 'Conv1D_regression_SCMneg.json'), 'r') as json_file:
-            loaded_model_json = json_file.read()
-        loaded_model = model_from_json(loaded_model_json)
-        loaded_model.load_weights(os.path.join(deepsp_model_dir, 'Conv1D_regression_SCMneg.h5'))
-        loaded_model.compile(optimizer='adam', loss='mae', metrics=['mae'])
-        scm_neg = loaded_model.predict(X)
-    except Exception as e:
-        print(f"Error loading or predicting with SCMneg model: {e}")
+    # Use batch processing for large datasets
+    sap_pos, scm_pos, scm_neg = process_predictions_in_batches(X, deepsp_model_dir, batch_size=batch_size)
+    
+    if sap_pos is None or scm_pos is None or scm_neg is None:
+        print("Error in batch processing. Exiting.")
         return
 
 
@@ -324,6 +452,13 @@ def main(input_csv, output_csv):
     # DeepViscosity ANN 앙상블 모델의 절대 경로 설정
     deepviscosity_ann_models_dir = os.path.join(project_root, 'data', 'DeepViscosity_ANN_ensemble_models')
 
+    # Process ensemble models with memory management
+    n_samples = X_scaled.shape[0]
+    ensemble_batch_size = min(batch_size, n_samples)  # Use the same batch size
+    n_batches = (n_samples + ensemble_batch_size - 1) // ensemble_batch_size
+    
+    print(f"Processing DeepViscosity ensemble with {n_batches} batches of size {ensemble_batch_size}")
+    
     for i in range(102):
         file_name = 'ANN_logo_' + str(i)
         json_model_path = os.path.join(deepviscosity_ann_models_dir, file_name + '.json')
@@ -334,9 +469,30 @@ def main(input_csv, output_csv):
                 loaded_model_json = json_file.read()
             model = model_from_json(loaded_model_json)
             model.load_weights(h5_weights_path)
-            model.compile(optimizer=Adam(learning_rate=0.0001), metrics=['accuracy']) # Use learning_rate instead of lr for newer Adam
-            pred = model.predict(X_scaled, verbose=0)
+            model.compile(optimizer=Adam(learning_rate=0.0001), metrics=['accuracy'])
+            
+            # Process in batches for large datasets
+            batch_preds = []
+            for batch_idx in range(n_batches):
+                start_idx = batch_idx * ensemble_batch_size
+                end_idx = min((batch_idx + 1) * ensemble_batch_size, n_samples)
+                X_batch = X_scaled[start_idx:end_idx]
+                
+                pred_batch = model.predict(X_batch, verbose=0)
+                batch_preds.append(pred_batch)
+            
+            # Combine batch predictions
+            pred = np.vstack(batch_preds) if len(batch_preds) > 1 else batch_preds[0]
             model_preds.append(pred)
+            
+            # Free memory
+            del model
+            import gc
+            gc.collect()
+            
+            if (i + 1) % 10 == 0:
+                print(f"Processed {i + 1}/102 ensemble models")
+                
         except FileNotFoundError:
             print(f"Warning: DeepViscosity ANN model file not found for {file_name}. Skipping this model.")
             continue
